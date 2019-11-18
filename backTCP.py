@@ -59,7 +59,6 @@ class BTcpConnection:
         return BTcpPacket.from_bytes(self.conn.recv(7 + 64))
 
 
-
 class BTcpPacket:
     def __init__(self, sport=0, dport=0, seq=0, ack=0, data_off=0, win_size=0, flag=0, data=b""):
         self.sport = sport
@@ -123,24 +122,12 @@ def recvForSend(conn, totalPkts, all):
 
 def send(data, addr, port):
     conn = BTcpConnection('send', addr, port)
-
-    N = 5           # window size
+    N = 8           # window size
 
     chunks = [data[x * 64:x * 64 + 64] for x in range((len(data) - 1) // 64 + 1)]
     packets = [BTcpPacket(seq=i & 0xFF, data_off=7, win_size=N, data=chunk) for i, chunk in enumerate(chunks)]
     totalPkts = len(packets)
 
-    # TODO: "data" is a bytes object
-    #       You should split it up into BTcpPacket objects, and call conn.send(pkt) on each one
-    # Example: > p = BTcpPacket(data=b"hello")
-    #          > conn.send(p)
-
-    # TODO: Delete the following code and add your own
-
-    # N = 5
-    # time = 0
-    # base = 0
-    # nextSeqNum = 0
     all = {'base': 0, 'nextSeqNum': 0, 'time': 0, 'isTimerStop': 0}
 
     thread = threading.Thread(target=recvForSend, args=(conn, totalPkts, all))
@@ -162,16 +149,6 @@ def send(data, addr, port):
             all['nextSeqNum'] = all['base']
             all['isTimerStop'] = 1
     return
-'''
-            all['time'] = time.time()
-            all['isTimerStop'] = 0
-            for i in range(all['base'], all['nextSeqNum']):
-                packets[i].flag = 1
-                conn.send(packets[i])
-                log('info', f"RESEND pkt {packets[i]}")
-'''
-    # End of your own code
-    # return
 
 
 def recv(addr, port):
@@ -179,16 +156,7 @@ def recv(addr, port):
 
     data = b''  # Nothing received yet
 
-    # TODO: Call conn.recv to receive packets
-    #       Received packets are of class BTcpPacket, so you can access packet information and content easily
-    # Example: > p = conn.recv()
-    #          Now p.seq, p.ack, p.data (and everything else) are available
-
-    # TODO: Assemble received binary data into `data` variable.
-    #       Make sure you're handling disorder and timeouts properly
-
     expectSeqNum = 0        # packet seq begin with 0
-
 
     while True:
         p = conn.recv()
@@ -207,111 +175,4 @@ def recv(addr, port):
         else:
             conn.send(BTcpPacket(ack=expectSeqNum-1, flag=1, data=b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
 
-    # End of your own code
-
     return data
-
-
-
-
-
-
-'''
-def send(data, addr, port):
-    conn = BTcpConnection('send', addr, port)
-
-    N = 5
-
-    chunks = [data[x * 64:x * 64 + 64] for x in range((len(data) - 1) // 64 + 1)]
-    packets = [BTcpPacket(seq=i & 0xFF, data_off=7, win_size=N, data=chunk) for i, chunk in enumerate(chunks)]
-    total = len(packets)
-
-    # TODO: "data" is a bytes object
-    #       You should split it up into BTcpPacket objects, and call conn.send(pkt) on each one
-    # Example: > p = BTcpPacket(data=b"hello")
-    #          > conn.send(p)
-
-    # TODO: Delete the following code and add your own
-
-    # N = 5
-    base = 0
-    nextSeqNum = 0
-
-    # send N pkt first
-    # fulfill the window
-    for i in range(N):
-        conn.send(packets[nextSeqNum])
-        log('info', f"SEND packet {packets[nextSeqNum]}")
-        nextSeqNum += 1
-
-    conn.settimeout(0.01)
-    while True:
-        try:
-            p = conn.recv()
-        except socket.timeout:
-            # the base pkt is timeout
-            # resend all pkts in the window
-            log('info', f"TIMEOUT for packet {packets[base]}")
-            for i in range(N):
-                if base + i < total:
-                    packets[base + i].flag = 1
-                    log('info', f"RESEND packet {packets[base + i]}")
-                    conn.send(packets[base + i])
-        else:
-            # recv an ack pkt
-            # if ack == base
-            #   base++ & send one pkt 
-            # if ack == base - 1
-            #   do nothing
-
-            distance = (p.ack + 256 - base % 256) % 256
-            log('info', 'Distance is {}'.format(distance))
-            if distance >= 0 and distance < N:
-                log('info', f"RECV ack packet {p.ack} when base is {base}")
-                if p.ack == base & 0xff:
-                    base += 1
-                    if base >= total:
-                        break
-                    while nextSeqNum < total & nextSeqNum < base + N:
-                        log('info', f"SEND packet {packets[nextSeqNum]}")
-                        conn.send(packets[nextSeqNum])
-                        nextSeqNum += 1
-
-    # End of your own code
-    return
-
-def recv(addr, port):
-    conn = BTcpConnection('recv', addr, port)
-
-    data = b''  # Nothing received yet
-
-    # TODO: Call conn.recv to receive packets
-    #       Received packets are of class BTcpPacket, so you can access packet information and content easily
-    # Example: > p = conn.recv()
-    #          Now p.seq, p.ack, p.data (and everything else) are available
-
-    # TODO: Assemble received binary data into `data` variable.
-    #       Make sure you're handling disorder and timeouts properly
-
-    expectSeqNum = 0        # packet seq begin with 0
-
-    conn.settimeout(0.010)  # 10ms timeout
-    while True:
-        p = conn.recv()
-        log('info', 'RECV packet: {} when expectSeqNum is {}'.format(p, expectSeqNum))
-        if p is None:  # No more packets
-            break
-        
-        if p.seq == expectSeqNum:
-            data += p.data
-            sndpkt = BTcpPacket(ack=expectSeqNum, flag=1)
-            conn.send(sndpkt)
-            expectSeqNum = (expectSeqNum + 1) & 0xff
-            log('info', 'expectSeqNum becomes {}'.format(expectSeqNum))
-        else:
-            conn.send(BTcpPacket(ack=expectSeqNum-1, flag=1))
-
-    # End of your own code
-
-    return data
-'''
